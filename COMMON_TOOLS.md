@@ -1,10 +1,10 @@
 # Common Tools Assessment
 
 ## Candidates for Submodule (Reusable)
-- `prepare.py` + `prepare.json`: Config-driven bundling (copy/compile) suitable for reuse with minor tweaks.
-- `deploy.py`: USB/WebREPL deploy flow is broadly reusable with generic defaults.
+- `prepare.py` + `prepare.json`: Config-driven bundling (copy/compile) suitable for reuse with minor tweaks. [UPDATED] Supports `--config`, `--src-dir`, `--output-dir`, and optional `--preserve-dirs`.
+- `deploy.py`: USB/WebREPL deploy flow is broadly reusable with generic defaults. [UPDATED] Generic banner, recursive copy with remote dir creation, CLI for WebREPL host/port/password.
 - `webrepl_cli.py`: Standalone MicroPython WebREPL client; ready as-is.
-- `update_version.py`: Generic version/hash management for `src/`; small CLI improvements suggested.
+- `update_version.py`: Generic version/hash management for `src/` with `--src`, `--version-file`, and `--bump {patch,minor,major}`.
 
 ## Per-Tool Findings & Fixes
 - `prepare.py`

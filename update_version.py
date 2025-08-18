@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Version management script for ESP32-S3 MicroPython project
+Version management script for MicroPython projects
 
-This script updates src/version.json and increments __version__ in Python modules
+Updates version.json and increments __version__ in Python modules
 when file changes are detected via SHA-256 hash comparison.
 
 Usage:
-    python3 update_version.py
+    python3 update_version.py [--src src] [--version-file src/version.json] [--bump patch|minor|major]
 """
 
 import json
@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 from datetime import date
+import argparse
 from pathlib import Path
 
 
@@ -30,13 +31,22 @@ def calculate_sha256(file_path):
         return None
 
 
-def increment_version(version_str):
-    """Increment the minor version number (e.g., '0.1.0' -> '0.2.0')"""
+def increment_version(version_str, policy: str = 'minor'):
+    """Increment version by policy: patch/minor/major"""
     try:
         parts = version_str.split('.')
         if len(parts) == 3:
             major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
-            return f"{major}.{minor + 1}.{patch}"
+            if policy == 'patch':
+                patch += 1
+            elif policy == 'major':
+                major += 1
+                minor = 0
+                patch = 0
+            else:  # minor
+                minor += 1
+                # keep patch
+            return f"{major}.{minor}.{patch}"
         else:
             # Handle non-standard version formats
             return version_str
@@ -112,8 +122,14 @@ def scan_python_files(src_dir):
 
 def main():
     """Main function"""
-    src_dir = "src"
-    version_file = os.path.join(src_dir, "version.json")
+    parser = argparse.ArgumentParser(description='MicroPython version manager')
+    parser.add_argument('--src', default='src', help='Source directory to scan (default: src)')
+    parser.add_argument('--version-file', default=None, help='Path to version.json (default: <src>/version.json)')
+    parser.add_argument('--bump', choices=['patch','minor','major'], default='minor', help='Version bump policy (default: minor)')
+    args = parser.parse_args()
+
+    src_dir = args.src
+    version_file = args.version_file or os.path.join(src_dir, "version.json")
     
     print("ESP32-S3 Version Management Script")
     print("=" * 40)
@@ -179,7 +195,7 @@ def main():
         elif version_data["SHA-256"][file_path] != current_hash:
             # File changed
             old_version = version_data["modules"].get(file_path, "0.1.0")
-            new_version = increment_version(old_version)
+            new_version = increment_version(old_version, args.bump)
             
             # Update __version__ in the file
             if update_file_version(full_path, new_version):

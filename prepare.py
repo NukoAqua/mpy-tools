@@ -13,19 +13,32 @@ import sys
 import shutil
 import re
 import hashlib
+from datetime import datetime
 from pathlib import Path
 
-def load_config(config_file="src/prepare.json"):
-    """設定ファイルを読み込み"""
-    try:
-        with open(config_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"エラー: {config_file} が見つかりません")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"エラー: {config_file} の JSON 形式が正しくありません: {e}")
-        return None
+def load_config(config_file: str | None = None):
+    """設定ファイルを読み込み。明示パスが無い場合は候補から探索"""
+    candidates = []
+    if config_file:
+        candidates.append(config_file)
+    # Fallback search paths
+    candidates.extend([
+        "prepare.json",
+        "src/prepare.json",
+    ])
+    for path in candidates:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+                print(f"設定ファイル: {path}")
+                return cfg
+        except FileNotFoundError:
+            continue
+        except json.JSONDecodeError as e:
+            print(f"エラー: {path} の JSON 形式が正しくありません: {e}")
+            return None
+    print("エラー: 設定ファイルが見つかりません (prepare.json など)")
+    return None
 
 def find_file_in_submodules(filename, submodules):
     """サブモジュール内でファイルを検索"""
@@ -113,7 +126,7 @@ def create_version_json(versions, hashes, src_dir="src", dry_run=False):
         return True
     
     version_data = {
-        "generated_at": "2025-08-16",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
         "description": "PaquaAutoDrain + ESP32s3base unified modules",
         "source_directory": src_dir,
         "format": "py",
@@ -166,14 +179,14 @@ def create_device_src_dir(device_src_dir="mpy_xtensa", dry_run=False):
         return device_src_path
     
     if device_src_path.exists():
-        print(f"既存のmpy_xtensaディレクトリをクリア: {device_src_path}")
+        print(f"既存の出力ディレクトリをクリア: {device_src_path}")
         shutil.rmtree(device_src_path)
-    
+
     device_src_path.mkdir()
-    print(f"mpy_xtensaディレクトリを作成しました: {device_src_path}")
+    print(f"出力ディレクトリを作成しました: {device_src_path}")
     return device_src_path
 
-def copy_only_files(copy_only_list, submodules=None, src_dir="src", device_src_dir="mpy_xtensa", dry_run=False):
+def copy_only_files(copy_only_list, submodules=None, src_dir="src", device_src_dir="mpy_xtensa", dry_run=False, preserve_dirs=False):
     """指定されたファイルをそのままコピー（プリコンパイルしない）"""
     src_path = Path(src_dir)
     device_src_path = Path(device_src_dir)
@@ -205,8 +218,10 @@ def copy_only_files(copy_only_list, submodules=None, src_dir="src", device_src_d
             # ファイルサイズ取得
             original_size = file_path.stat().st_size
             
-            # mpy_xtensaに直接コピー（サブディレクトリは作らない）
-            dest_path = device_src_path / filename
+            # 出力先パス
+            dest_path = device_src_path / filename if not preserve_dirs else device_src_path / Path(filename)
+            if preserve_dirs and not dry_run:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
             
             if dry_run:
                 print(f"  [予定] コピー: {file_path} -> {dest_path} ({original_size} bytes)")
@@ -226,8 +241,8 @@ def copy_only_files(copy_only_list, submodules=None, src_dir="src", device_src_d
     
     return results
 
-def compile_module(filename, command, submodules=None, src_dir="src", device_src_dir="mpy_xtensa", dry_run=False):
-    """単一モジュールをコンパイルしてmpy_xtensaに配置"""
+def compile_module(filename, command, submodules=None, src_dir="src", device_src_dir="mpy_xtensa", dry_run=False, preserve_dirs=False):
+    """単一モジュールをコンパイルして出力ディレクトリに配置"""
     src_path = Path(src_dir)
     
     # まずsrc/ディレクトリで検索
@@ -255,7 +270,7 @@ def compile_module(filename, command, submodules=None, src_dir="src", device_src
         # ドライランでは仮の圧縮率を表示
         estimated_compressed_size = int(original_size * 0.7)  # 概算30%削減
         compression_ratio = (1 - estimated_compressed_size / original_size) * 100
-        device_mpy_path = Path(device_src_dir) / f"{Path(filename).stem}.mpy"
+        device_mpy_path = (Path(device_src_dir) / f"{Path(filename).stem}.mpy") if not preserve_dirs else (Path(device_src_dir) / Path(filename).with_suffix('.mpy'))
         
         print(f"    [予定] 成功: {original_size} bytes -> {estimated_compressed_size} bytes "
               f"({compression_ratio:.1f}% 削減 - 推定)")
@@ -276,8 +291,10 @@ def compile_module(filename, command, submodules=None, src_dir="src", device_src
             compiled_size = temp_mpy_path.stat().st_size
             compression_ratio = (1 - compiled_size / original_size) * 100
             
-            # mpy_xtensaへの移動先パス（サブディレクトリは作らない）
-            device_mpy_path = Path(device_src_dir) / f"{Path(filename).stem}.mpy"
+            # 出力先パス
+            device_mpy_path = (Path(device_src_dir) / f"{Path(filename).stem}.mpy") if not preserve_dirs else (Path(device_src_dir) / Path(filename).with_suffix('.mpy'))
+            if preserve_dirs:
+                device_mpy_path.parent.mkdir(parents=True, exist_ok=True)
             
             # .mpyファイルをmpy_xtensaに移動
             shutil.move(str(temp_mpy_path), str(device_mpy_path))
@@ -298,8 +315,8 @@ def compile_module(filename, command, submodules=None, src_dir="src", device_src
             print(f"    エラー詳細: {e.stderr}")
         return False
 
-def create_device_version_json(device_src_dir="mpy_xtensa", dry_run=False):
-    """mpy_xtensa用のversion.jsonを作成（mpyファイルのSHA-256ハッシュを計算）"""
+def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_run=False):
+    """出力ディレクトリ用のversion.jsonを作成（mpyファイルのSHA-256ハッシュを計算）"""
     version_file = Path(device_src_dir) / "version.json"
     device_src_path = Path(device_src_dir)
     
@@ -309,11 +326,11 @@ def create_device_version_json(device_src_dir="mpy_xtensa", dry_run=False):
     
     # 元のversion.jsonを読み込み
     try:
-        with open("src/version.json", "r") as f:
+        with open(Path(src_dir) / "version.json", "r") as f:
             version_data = json.load(f)
         
         # mpy_xtensa用に更新
-        version_data["compiled_at"] = "2025-08-16"
+        version_data["compiled_at"] = datetime.now().isoformat(timespec="seconds")
         version_data["format"] = "mpy"
         version_data["architecture"] = "xtensa"
         version_data["optimization"] = "O2"
@@ -358,12 +375,12 @@ def create_device_version_json(device_src_dir="mpy_xtensa", dry_run=False):
         with open(version_file, "w") as f:
             json.dump(version_data, f, indent=2, ensure_ascii=False)
         
-        print(f"mpy_xtensa用version.jsonを作成: {version_file}")
+        print(f"出力用version.jsonを作成: {version_file}")
         print(f"  統合ファイル数: {len(new_modules)}")
         print(f"  ハッシュ計算済み: {len([h for h in new_hashes.values() if h not in ['error', 'missing']])}")
         
     except FileNotFoundError:
-        print("警告: src/version.json が見つかりません")
+        print(f"警告: {Path(src_dir) / 'version.json'} が見つかりません")
     except Exception as e:
         print(f"エラー: version.json作成中にエラー: {e}")
 
@@ -373,14 +390,14 @@ def clean_device_src(device_src_dir="mpy_xtensa", dry_run=False):
     
     if dry_run:
         if device_src_path.exists():
-            print(f"[DRY RUN] mpy_xtensaディレクトリ削除予定: {device_src_path}")
+            print(f"[DRY RUN] 出力ディレクトリ削除予定: {device_src_path}")
         else:
             print("[DRY RUN] mpy_xtensaディレクトリは存在しません（削除不要）")
         return
     
     if device_src_path.exists():
         shutil.rmtree(device_src_path)
-        print(f"mpy_xtensaディレクトリを削除しました: {device_src_path}")
+        print(f"出力ディレクトリを削除しました: {device_src_path}")
     else:
         print("mpy_xtensaディレクトリは存在しません")
 
@@ -413,10 +430,10 @@ def show_summary(copy_results, compile_results, device_src_dir="mpy_xtensa", dry
     # device_srcディレクトリの内容表示
     device_src_path = Path(device_src_dir)
     if device_src_path.exists():
-        mpy_files = list(device_src_path.glob('*.mpy'))
-        other_files = [f for f in device_src_path.glob('*') if f.is_file() and not f.name.endswith('.mpy')]
+        mpy_files = list(device_src_path.rglob('*.mpy'))
+        other_files = [f for f in device_src_path.rglob('*') if f.is_file() and not f.name.endswith('.mpy')]
         
-        print(f"\n=== mpy_xtensaディレクトリ ===")
+        print(f"\n=== 出力ディレクトリ ===")
         print(f"mpyファイル: {len(mpy_files)} 個")
         print(f"その他ファイル: {len(other_files)} 個")
         print(f"場所: {device_src_path.absolute()}")
@@ -435,8 +452,8 @@ def show_status(src_dir="src", device_src_dir="mpy_xtensa"):
     # srcディレクトリの状態
     src_path = Path(src_dir)
     if src_path.exists():
-        py_files = list(src_path.glob('*.py'))
-        print(f"src/内の.pyファイル: {len(py_files)} 個")
+        py_files = list(src_path.rglob('*.py'))
+        print(f"{src_dir}/ 内の.pyファイル: {len(py_files)} 個")
     else:
         print("srcディレクトリが見つかりません")
     
@@ -453,29 +470,29 @@ def show_status(src_dir="src", device_src_dir="mpy_xtensa"):
     else:
         print("サブモジュール設定がありません")
     
-    # mpy_xtensaディレクトリの状態
+    # 出力ディレクトリの状態
     device_src_path = Path(device_src_dir)
     if device_src_path.exists():
-        mpy_files = list(device_src_path.glob('*.mpy'))
-        other_files = [f for f in device_src_path.glob('*') if f.is_file() and not f.name.endswith('.mpy')]
-        print(f"mpy_xtensa/内の.mpyファイル: {len(mpy_files)} 個")
-        print(f"mpy_xtensa/内のその他ファイル: {len(other_files)} 個")
+        mpy_files = list(device_src_path.rglob('*.mpy'))
+        other_files = [f for f in device_src_path.rglob('*') if f.is_file() and not f.name.endswith('.mpy')]
+        print(f"{device_src_dir}/ 内の.mpyファイル: {len(mpy_files)} 個")
+        print(f"{device_src_dir}/ 内のその他ファイル: {len(other_files)} 個")
     else:
-        print("mpy_xtensaディレクトリは存在しません")
+        print("出力ディレクトリは存在しません")
 
 def main():
     """メイン処理"""
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='PaquaAutoDrain ESP32-S3 統合準備ツール',
+        description='MicroPython バンドル準備ツール',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 使用例:
-  python3 tools/prepare.py                      # 統合処理実行
-  python3 tools/prepare.py --dry-run            # 処理内容の事前確認
-  python3 tools/prepare.py clean                # mpy_xtensaディレクトリ削除
-  python3 tools/prepare.py status               # 現在の状態表示
+  python3 prepare.py                      # 統合処理実行
+  python3 prepare.py --dry-run            # 処理内容の事前確認
+  python3 prepare.py clean                # 出力ディレクトリ削除
+  python3 prepare.py status               # 現在の状態表示
         '''
     )
     
@@ -490,10 +507,26 @@ def main():
         action='store_true',
         help='実際の処理を行わず、予定される処理内容のみを表示'
     )
+    parser.add_argument(
+        '--config', '-c',
+        help='設定ファイルのパス (デフォルト: prepare.json を自動探索)'
+    )
+    parser.add_argument(
+        '--src-dir', default='src',
+        help='ソースディレクトリ (デフォルト: src)'
+    )
+    parser.add_argument(
+        '--output-dir', '-o', default='mpy_xtensa',
+        help='出力ディレクトリ (デフォルト: mpy_xtensa)'
+    )
+    parser.add_argument(
+        '--preserve-dirs', action='store_true',
+        help='出力時にサブディレクトリ構造を保持する'
+    )
     
     args = parser.parse_args()
     
-    print("PaquaAutoDrain ESP32-S3 統合準備ツール")
+    print("MicroPython バンドル準備ツール")
     print("=" * 45)
     
     # コマンド処理
@@ -501,11 +534,11 @@ def main():
         clean_device_src(dry_run=args.dry_run)
         return
     elif args.command == "status":
-        show_status()
+        show_status(src_dir=args.src_dir, device_src_dir=args.output_dir)
         return
     
     # 設定読み込み
-    config = load_config()
+    config = load_config(args.config)
     if not config:
         return
     
@@ -516,29 +549,29 @@ def main():
         return
     
     # src/version.json作成（処理前）
-    print(f"\n=== src/version.json作成 ===")
+    print(f"\n=== {args.src_dir}/version.json作成 ===")
     if args.dry_run:
         print(f"[DRY RUN] モジュールのバージョン情報とハッシュ収集予定")
         # ドライランでも設定ファイルから情報は取得
         module_versions, module_hashes = collect_module_versions(
-            "src", 
+            args.src_dir, 
             config.get('modules', []), 
             config.get('copy_only', []),
             config.get('submodules', [])
         )
-        create_version_json(module_versions, module_hashes, "src", dry_run=True)
+        create_version_json(module_versions, module_hashes, args.src_dir, dry_run=True)
     else:
         module_versions, module_hashes = collect_module_versions(
-            "src", 
+            args.src_dir, 
             config.get('modules', []), 
             config.get('copy_only', []),
             config.get('submodules', [])
         )
-        if not create_version_json(module_versions, module_hashes, "src"):
-            print("警告: src/version.json作成に失敗しました")
+        if not create_version_json(module_versions, module_hashes, args.src_dir):
+            print(f"警告: {args.src_dir}/version.json作成に失敗しました")
     
     # mpy_xtensaディレクトリ作成
-    device_src_path = create_device_src_dir(dry_run=args.dry_run)
+    device_src_path = create_device_src_dir(device_src_dir=args.output_dir, dry_run=args.dry_run)
     
     # コピーのみファイルの処理
     copy_results = []
@@ -546,7 +579,10 @@ def main():
         copy_results = copy_only_files(
             config['copy_only'], 
             config.get('submodules', []),
-            dry_run=args.dry_run
+            src_dir=args.src_dir,
+            device_src_dir=args.output_dir,
+            dry_run=args.dry_run,
+            preserve_dirs=args.preserve_dirs
         )
     
     # コンパイル実行
@@ -558,34 +594,37 @@ def main():
             print(f"\nコンパイル開始...")
         print(f"コマンド: {config['command']}")
         print(f"対象モジュール: {len(config['modules'])} 個")
-        print(f"出力先: mpy_xtensa/")
+        print(f"出力先: {args.output_dir}/")
         
         for module in config['modules']:
             success = compile_module(
-                module, 
-                config['command'], 
+                module,
+                config['command'],
                 config.get('submodules', []),
-                dry_run=args.dry_run
+                src_dir=args.src_dir,
+                device_src_dir=args.output_dir,
+                dry_run=args.dry_run,
+                preserve_dirs=args.preserve_dirs
             )
             compile_results.append({'module': module, 'success': success})
     
     # mpy_xtensa用version.json作成
-    create_device_version_json(dry_run=args.dry_run)
+    create_device_version_json(src_dir=args.src_dir, device_src_dir=args.output_dir, dry_run=args.dry_run)
     
     # 結果表示
-    show_summary(copy_results, compile_results, dry_run=args.dry_run)
+    show_summary(copy_results, compile_results, device_src_dir=args.output_dir, dry_run=args.dry_run)
     
     # 使用方法の説明
     if args.dry_run:
         print(f"\n=== 次のステップ [DRY RUN] ===")
         print(f"実際の処理実行: python3 {sys.argv[0]}")
         print(f"ステータス確認: python3 {sys.argv[0]} status")
-        print(f"ESP32-S3転送: tools/deploy.py で mpy_xtensa/ をデプロイ")
+        print(f"ESP32 へ転送: deploy.py で {args.output_dir}/ をデプロイ")
     else:
         print(f"\n=== 使用方法 ===")
         print(f"ステータス確認: python3 {sys.argv[0]} status")
-        print(f"mpy_xtensa削除: python3 {sys.argv[0]} clean")
-        print(f"ESP32-S3転送: mpy_xtensa/ 内のファイルをESP32-S3にアップロード")
+        print(f"出力削除: python3 {sys.argv[0]} clean")
+        print(f"ESP32 へ転送: {args.output_dir}/ 内のファイルをデバイスにアップロード")
 
 if __name__ == "__main__":
     try:

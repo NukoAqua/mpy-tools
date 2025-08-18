@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-PaquaAutoDrain ESP32-S3 デプロイツール
+MicroPython デプロイツール
 
-mpy_xtensa/以下のファイルをESP32-S3デバイスに効率的にデプロイします。
+指定ディレクトリ配下のファイルをESP32系MicroPythonデバイスに効率的にデプロイします。
 - SHA256ハッシュによる差分更新
 - webrepl_cfg.py保護
-- mpremoteツールによる安全なファイル操作
+- mpremoteツール / WebREPL による安全なファイル操作
 """
 
 import os
@@ -25,9 +25,10 @@ except ImportError:
 
 
 class ESP32DeployTool:
-    """ESP32-S3用の効率的デプロイツール"""
+    """MicroPython向け効率的デプロイツール"""
     
-    def __init__(self, source_dir: str = "mpy_xtensa", device: Optional[str] = None, dry_run: bool = False, use_webrepl: bool = False):
+    def __init__(self, source_dir: str = "mpy_xtensa", device: Optional[str] = None, dry_run: bool = False, use_webrepl: bool = False,
+                 webrepl_host: Optional[str] = None, webrepl_port: Optional[int] = None, webrepl_password: Optional[str] = None):
         self.source_dir = Path(source_dir)
         self.device = device
         self.dry_run = dry_run
@@ -38,9 +39,9 @@ class ESP32DeployTool:
         self.load_env_config()
         
         # WebREPL settings
-        self.webrepl_host = self.env_config.get('WEBREPL_HOST', 'PaquaAutoDrain.local')
-        self.webrepl_port = int(self.env_config.get('WEBREPL_PORT', '8266'))
-        self.webrepl_password = self.env_config.get('WEBREPL_PASSWORD', '')
+        self.webrepl_host = webrepl_host or self.env_config.get('WEBREPL_HOST', 'micropython.local')
+        self.webrepl_port = int(webrepl_port or self.env_config.get('WEBREPL_PORT', '8266'))
+        self.webrepl_password = webrepl_password if webrepl_password is not None else self.env_config.get('WEBREPL_PASSWORD', '')
         self.webrepl_cli_path = Path(__file__).parent / "webrepl_cli.py"
         
         if self.use_webrepl and not self.webrepl_password:
@@ -57,7 +58,7 @@ class ESP32DeployTool:
             
         # Get environment variables
         self.env_config = {
-            'WEBREPL_HOST': os.getenv('WEBREPL_HOST', 'PaquaAutoDrain.local'),
+            'WEBREPL_HOST': os.getenv('WEBREPL_HOST', 'micropython.local'),
             'WEBREPL_PORT': os.getenv('WEBREPL_PORT', '8266'),
             'WEBREPL_PASSWORD': os.getenv('WEBREPL_PASSWORD', ''),
             'DEBUG_DEPLOY': os.getenv('DEBUG_DEPLOY', 'false').lower() == 'true',
@@ -95,7 +96,7 @@ class ESP32DeployTool:
             return False, "mpremoteが見つかりません。pip install mpremoteを実行してください。"
     
     def list_devices(self) -> List[str]:
-        """利用可能なESP32デバイスを検索"""
+        """利用可能なデバイスを検索"""
         success, output = self.run_mpremote(["connect", "list"])
         if not success:
             print(f"デバイス検索失敗: {output}")
@@ -104,33 +105,36 @@ class ESP32DeployTool:
         devices = []
         for line in output.split('\n'):
             line = line.strip()
-            # Espressif Deviceを含む行のみ抽出
-            if line and "Espressif Device" in line:
+            if not line or line.startswith('ls :'):
+                continue
+            # 代表的なポート名やキーワードを許容
+            port = line.split()[0]
+            if port.startswith('/dev/tty') or port.startswith('COM') or 'Espressif' in line:
                 devices.append(line)
         return devices
     
     def auto_select_device(self) -> Optional[str]:
-        """ESP32デバイスを自動選択"""
+        """デバイスを自動選択"""
         if self.device:
             # 指定されたデバイスを使用
             print(f"指定デバイス使用: {self.device}")
             return self.device
         
-        print("ESP32デバイス検索中...")
+        print("ESP32/MicroPythonデバイス検索中...")
         devices = self.list_devices()
         
         if not devices:
-            print("ESP32デバイスが見つかりません。")
+            print("ESP32/MicroPythonデバイスが見つかりません。")
             print("- デバイスがUSB接続されているか確認してください")
             print("- udevルール設定: sudo usermod -a -G dialout $USER")
             return None
         
         if len(devices) == 1:
             device = devices[0].split()[0]  # ポート部分のみ抽出
-            print(f"ESP32デバイス発見: {device}")
+            print(f"デバイス発見: {device}")
             return device
         
-        print(f"複数のESP32デバイスが見つかりました:")
+        print(f"複数のデバイスが見つかりました:")
         for i, device in enumerate(devices, 1):
             print(f"  {i}. {device.split()[0]}")
         print("--device オプションでデバイスを指定してください")
@@ -175,25 +179,26 @@ class ESP32DeployTool:
         return files_info
     
     def get_local_files(self) -> Dict[str, str]:
-        """ローカルファイルのSHA256ハッシュを取得"""
+        """ローカルファイルのSHA256ハッシュを取得（再帰）"""
         print(f"ローカルファイル情報取得中: {self.source_dir}/")
-        files_info = {}
+        files_info: Dict[str, str] = {}
         
         if not self.source_dir.exists():
             print(f"エラー: ソースディレクトリが見つかりません: {self.source_dir}")
             return files_info
         
-        for file_path in self.source_dir.glob("*"):
+        for file_path in self.source_dir.rglob("*"):
             if file_path.is_file():
+                rel = str(file_path.relative_to(self.source_dir))
                 try:
                     with open(file_path, 'rb') as f:
                         content = f.read()
                     hash_value = hashlib.sha256(content).hexdigest()
-                    files_info[file_path.name] = hash_value
-                    print(f"  {file_path.name}: {hash_value[:16]}...")
+                    files_info[rel] = hash_value
+                    print(f"  {rel}: {hash_value[:16]}...")
                 except Exception as e:
-                    print(f"  {file_path.name}: 読み込み失敗 - {e}")
-                    files_info[file_path.name] = ""
+                    print(f"  {rel}: 読み込み失敗 - {e}")
+                    files_info[rel] = ""
         
         return files_info
     
@@ -244,9 +249,23 @@ class ESP32DeployTool:
             return False
         
         return True
-    
+
+    def _ensure_remote_dirs(self, device: str, remote_path: str) -> None:
+        """必要なリモートディレクトリを作成（既存なら無視）"""
+        p = Path(remote_path)
+        parts = list(p.parts)
+        cur = Path('/')
+        for i, part in enumerate(parts):
+            if part in ('', '.'):
+                continue
+            cur = cur / part
+            # 最後がファイル名っぽい場合はスキップ
+            if i == len(parts) - 1 and '.' in part:
+                break
+            self.run_mpremote(["connect", device, "fs", "mkdir", f":{str(cur)}"])  # 失敗は無視
+
     def copy_files(self, device: str, files_to_copy: Set[str]) -> bool:
-        """ファイルをデバイスにコピー"""
+        """ファイルをデバイスにコピー（サブディレクトリ対応）"""
         if not files_to_copy:
             return True
         
@@ -265,6 +284,10 @@ class ESP32DeployTool:
         for filename in files_to_copy:
             local_path = self.source_dir / filename
             print(f"  コピー: {filename}")
+            # リモート側のディレクトリが必要なら作成
+            parent = Path(filename).parent
+            if str(parent) not in (".", ""):
+                self._ensure_remote_dirs(device, f"/{parent}")
             
             success, output = self.run_mpremote([
                 "connect", device, "fs", "cp", str(local_path), f":/{filename}"
@@ -434,7 +457,7 @@ class ESP32DeployTool:
     
     def deploy(self) -> bool:
         """メインデプロイ処理"""
-        print("PaquaAutoDrain ESP32-S3 デプロイツール")
+        print("MicroPython デプロイツール")
         print("=" * 45)
         
         # WebREPL使用時の処理
@@ -498,16 +521,16 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='PaquaAutoDrain ESP32-S3 デプロイツール',
+        description='MicroPython デプロイツール',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 使用例:
-  python3 tools/deploy.py                           # 自動デバイス検出
-  python3 tools/deploy.py --device /dev/ttyACM0     # デバイス指定
-  python3 tools/deploy.py --source src/             # ソースディレクトリ変更
-  python3 tools/deploy.py --dry-run                 # 変更内容の事前確認
-  python3 tools/deploy.py --webrepl                 # WebREPL経由でデプロイ
-  python3 tools/deploy.py --webrepl --dry-run       # WebREPLドライラン
+  python3 deploy.py                           # 自動デバイス検出
+  python3 deploy.py --device /dev/ttyACM0     # デバイス指定
+  python3 deploy.py --source mpy_xtensa       # ソースディレクトリ変更
+  python3 deploy.py --dry-run                 # 変更内容の事前確認
+  python3 deploy.py --webrepl                 # WebREPL経由でデプロイ
+  python3 deploy.py --webrepl --dry-run       # WebREPLドライラン
         '''
     )
     
@@ -530,6 +553,9 @@ def main():
         action='store_true',
         help='WebREPL経由でファイル転送（.envにWEBREPL_PASSWORDが必要）'
     )
+    parser.add_argument('--webrepl-host', default=None, help='WebREPL ホスト名 (例: micropython.local)')
+    parser.add_argument('--webrepl-port', type=int, default=None, help='WebREPL ポート (例: 8266)')
+    parser.add_argument('--webrepl-password', default=None, help='WebREPL パスワード (未指定時は環境変数)')
     
     args = parser.parse_args()
     
@@ -542,7 +568,10 @@ def main():
             source_dir=args.source,
             device=args.device,
             dry_run=args.dry_run,
-            use_webrepl=args.webrepl
+            use_webrepl=args.webrepl,
+            webrepl_host=args.webrepl_host,
+            webrepl_port=args.webrepl_port,
+            webrepl_password=args.webrepl_password
         )
         
         success = deploy_tool.deploy()
