@@ -1,0 +1,29 @@
+{
+  "_comment": "PaquaAutoDrain ESP32-S3 統合設定",
+  "_description": "src/にないファイルはsubmodulesから自動検索されます",
+  "command": "mpy-cross -march=xtensa -O2 ",
+  "copy_only": [
+    "boot.py",
+    "main.py", 
+    "config.json",
+    "debug_uart.py",
+    "debug_commands.py",
+    "debug_uart_simple.py",
+    "debug_uart_micro.py"
+  ],
+  "modules": [
+    "boot1.py",
+    "app.py",
+    "VL6180.py", 
+    "syslog_queue.py",
+    "config.py",
+    "wifi.py",
+    "ntp.py",
+    "usyslog.py",
+    "status_led.py",
+    "influxdb_logger.py"
+  ],
+  "submodules": [
+    "ESP32s3base"
+  ]
+}
