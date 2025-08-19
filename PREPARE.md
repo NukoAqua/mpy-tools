@@ -36,6 +36,13 @@ MicroPython バンドル準備ツール。ソースとサブモジュールか�
 - Python 3.11+
 - `mpy-cross`（インストール例: `pip install mpy-cross`）
 
+## 注意（NOTIFICATION）
+- `.mpy` は MicroPython 本体のバイトコード「バージョン」に依存します。古い MicroPython を搭載したデバイス向けに出力する場合は、`prepare.json` の `command` に `-b VERSION` を追加してください。
+  - 例: `"command": "mpy-cross -march=xtensa -O2 -b v1.20"`
+  - 使用中のファームウェアに合った `VERSION` を指定してください（例: `v1.20`, `v1.22` など）。
+  - デバイス側のバージョン確認例: `mpremote repl` → `import sys; print(sys.implementation); print(sys.version)`
+  - 新しめの MicroPython を使う場合は指定不要なこともありますが、古い環境へ配布する場合は必ず明示してください。
+
 ---
 
 # prepare.json 設定仕様
