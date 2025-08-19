@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-ESP32-S3 MicroPython 統合準備スクリプト
-PaquaAutoDrainとESP32s3baseサブモジュールのファイルを統合して
-mpy_xtensaディレクトリに配置します。
-boot.py/main.pyはそのままコピー、その他はmpy-crossでコンパイルします。
+MicroPython 統合準備スクリプト
+設定とサブモジュールからファイルを集約し、出力ディレクトリに配置します。
+`boot.py`/`main.py`はコピー、その他は`mpy-cross`でコンパイルします。
 """
 
 import json
@@ -15,6 +14,13 @@ import re
 import hashlib
 from datetime import datetime
 from pathlib import Path
+
+def parse_arch_from_command(command: str) -> str | None:
+    """mpy-crossコマンドラインから -march=<arch> を抽出"""
+    if not command:
+        return None
+    m = re.search(r"-march=([A-Za-z0-9_]+)", command)
+    return m.group(1) if m else None
 
 def load_config(config_file: str | None = None):
     """設定ファイルを読み込み。明示パスが無い場合は候補から探索"""
@@ -169,13 +175,13 @@ def check_mpy_cross():
         return False
 
 def create_device_src_dir(device_src_dir="mpy_xtensa", dry_run=False):
-    """mpy_xtensaディレクトリを作成"""
+    """出力ディレクトリを作成"""
     device_src_path = Path(device_src_dir)
     
     if dry_run:
         if device_src_path.exists():
-            print(f"[DRY RUN] 既存のmpy_xtensaディレクトリクリア予定: {device_src_path}")
-        print(f"[DRY RUN] mpy_xtensaディレクトリ作成予定: {device_src_path}")
+            print(f"[DRY RUN] 既存の出力ディレクトリクリア予定: {device_src_path}")
+        print(f"[DRY RUN] 出力ディレクトリ作成予定: {device_src_path}")
         return device_src_path
     
     if device_src_path.exists():
@@ -315,13 +321,13 @@ def compile_module(filename, command, submodules=None, src_dir="src", device_src
             print(f"    エラー詳細: {e.stderr}")
         return False
 
-def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_run=False):
+def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_run=False, architecture: str | None = None):
     """出力ディレクトリ用のversion.jsonを作成（mpyファイルのSHA-256ハッシュを計算）"""
     version_file = Path(device_src_dir) / "version.json"
     device_src_path = Path(device_src_dir)
     
     if dry_run:
-        print(f"[DRY RUN] mpy_xtensa用version.json作成予定: {version_file}")
+        print(f"[DRY RUN] 出力用version.json作成予定: {version_file}")
         return
     
     # 元のversion.jsonを読み込み
@@ -329,10 +335,11 @@ def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_r
         with open(Path(src_dir) / "version.json", "r") as f:
             version_data = json.load(f)
         
-        # mpy_xtensa用に更新
+        # 出力用に更新
         version_data["compiled_at"] = datetime.now().isoformat(timespec="seconds")
         version_data["format"] = "mpy"
-        version_data["architecture"] = "xtensa"
+        if architecture:
+            version_data["architecture"] = architecture
         version_data["optimization"] = "O2"
         
         # 実際に存在するファイルを基にモジュール情報を再構築
@@ -341,7 +348,7 @@ def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_r
         
         print(f"統合ファイルのハッシュを計算中...")
         
-        # mpy_xtensa内の全ファイルをスキャン
+        # 出力ディレクトリ内の全ファイルをスキャン
         for file_path in device_src_path.rglob('*'):
             if file_path.is_file():
                 relative_path = file_path.relative_to(device_src_path)
@@ -371,7 +378,7 @@ def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_r
         version_data["modules"] = new_modules
         version_data["SHA-256"] = new_hashes
         
-        # mpy_xtensa/version.jsonに保存
+        # 出力用 version.json に保存
         with open(version_file, "w") as f:
             json.dump(version_data, f, indent=2, ensure_ascii=False)
         
@@ -385,21 +392,21 @@ def create_device_version_json(src_dir="src", device_src_dir="mpy_xtensa", dry_r
         print(f"エラー: version.json作成中にエラー: {e}")
 
 def clean_device_src(device_src_dir="mpy_xtensa", dry_run=False):
-    """mpy_xtensaディレクトリを削除"""
+    """出力ディレクトリを削除"""
     device_src_path = Path(device_src_dir)
     
     if dry_run:
         if device_src_path.exists():
             print(f"[DRY RUN] 出力ディレクトリ削除予定: {device_src_path}")
         else:
-            print("[DRY RUN] mpy_xtensaディレクトリは存在しません（削除不要）")
+            print("[DRY RUN] 出力ディレクトリは存在しません（削除不要）")
         return
     
     if device_src_path.exists():
         shutil.rmtree(device_src_path)
         print(f"出力ディレクトリを削除しました: {device_src_path}")
     else:
-        print("mpy_xtensaディレクトリは存在しません")
+        print("出力ディレクトリは存在しません")
 
 def show_summary(copy_results, compile_results, device_src_dir="mpy_xtensa", dry_run=False):
     """処理結果のサマリーを表示"""
@@ -442,7 +449,7 @@ def show_usage():
     """使用方法を表示"""
     print("使用方法:")
     print(f"  {sys.argv[0]}                 - 統合処理実行")
-    print(f"  {sys.argv[0]} clean           - mpy_xtensaディレクトリを削除")
+    print(f"  {sys.argv[0]} clean           - 出力ディレクトリを削除")
     print(f"  {sys.argv[0]} status          - 現在の状態を表示")
 
 def show_status(src_dir="src", device_src_dir="mpy_xtensa"):
@@ -541,6 +548,14 @@ def main():
     config = load_config(args.config)
     if not config:
         return
+    arch = parse_arch_from_command(config.get('command', ''))
+    if arch:
+        print(f"検出されたアーキテクチャ: {arch}")
+        # デフォルト出力名が xtensa の場合のみ自動補正
+        if args.output_dir == 'mpy_xtensa' and arch != 'xtensa':
+            auto_out = f"mpy_{arch}"
+            print(f"出力ディレクトリを自動調整: {args.output_dir} -> {auto_out}")
+            args.output_dir = auto_out
     
     # mpy-crossの確認
     if args.dry_run:
@@ -609,7 +624,7 @@ def main():
             compile_results.append({'module': module, 'success': success})
     
     # mpy_xtensa用version.json作成
-    create_device_version_json(src_dir=args.src_dir, device_src_dir=args.output_dir, dry_run=args.dry_run)
+    create_device_version_json(src_dir=args.src_dir, device_src_dir=args.output_dir, dry_run=args.dry_run, architecture=arch)
     
     # 結果表示
     show_summary(copy_results, compile_results, device_src_dir=args.output_dir, dry_run=args.dry_run)
