@@ -5,6 +5,8 @@ MicroPython 統合準備スクリプト
 `boot.py`/`main.py`はコピー、その他は`mpy-cross`でコンパイルします。
 """
 
+__version__ = "0.1.0"
+
 import json
 import os
 import subprocess

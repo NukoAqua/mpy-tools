@@ -8,6 +8,8 @@ MicroPython デプロイツール
 - mpremoteツール / WebREPL による安全なファイル操作
 """
 
+__version__ = "0.1.0"
+
 import os
 import subprocess
 import sys
