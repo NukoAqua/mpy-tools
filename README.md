@@ -20,18 +20,23 @@ MicroPython 用の開発ユーティリティ集です。モジュールのバ�
    - または `uv pip install mpy-cross mpremote python-dotenv`
 
 ## クイックスタート
+補足: このリポジトリではスクリプト実体が `tools/` 配下にあります。PATH を通さない場合は `python3 tools/...` で実行してください。PATH を通す場合は、作業シェルで一度だけ以下を実行すると `prepare.py` などをそのまま呼べます。
+
+- PATH を追加: `source path/to/mpy-tools-path.sh`
+  - 例（サブモジュールとして `mpy-tools/` に配置）: `source mpy-tools/mpy-tools-path.sh`
+  - 例（このリポジトリ直下）: `source ./mpy-tools-path.sh`
 1. バージョン更新・`version.json` 生成/更新
-   - `python3 update_version.py`
+   - `python3 tools/update_version.py`（PATH 済みなら `update_version.py`）
 2. バンドル（コピー/コンパイル）と出力生成
-   - 事前確認: `python3 prepare.py -n`
-   - 実行: `python3 prepare.py`
+   - 事前確認: `python3 tools/prepare.py -n`（PATH 済みなら `prepare.py -n`）
+   - 実行: `python3 tools/prepare.py`（PATH 済みなら `prepare.py`）
 3. デプロイ（USB/mpremote）
-   - 事前確認: `python3 deploy.py --source mpy_xtensa --dry-run`
-   - 実行: `python3 deploy.py --source mpy_xtensa`
+   - 事前確認: `python3 tools/deploy.py --source mpy_xtensa --dry-run`（PATH 済みなら `deploy.py ...`）
+   - 実行: `python3 tools/deploy.py --source mpy_xtensa`
 4. デプロイ（WebREPL）
    - `.env` に `WEBREPL_HOST`, `WEBREPL_PORT`, `WEBREPL_PASSWORD` を設定
-   - 事前確認: `python3 deploy.py -w --source mpy_xtensa --dry-run`
-   - 実行: `python3 deploy.py -w --source mpy_xtensa`
+   - 事前確認: `python3 tools/deploy.py -w --source mpy_xtensa --dry-run`
+   - 実行: `python3 tools/deploy.py -w --source mpy_xtensa`
 
 ## ツール概要
 
@@ -42,9 +47,9 @@ MicroPython 用の開発ユーティリティ集です。モジュールのバ�
   - `src/version.json` を作成し、モジュールの `__version__` と SHA-256 を記録
   - 出力ディレクトリ側にも `version.json` を出力（実在ファイルのハッシュで再構成）
 - 主なコマンド:
-  - `python3 prepare.py -n`（ドライラン）
-  - `python3 prepare.py`（実行）
-  - `python3 prepare.py status` / `python3 prepare.py clean`
+  - `python3 tools/prepare.py -n`（ドライラン）
+  - `python3 tools/prepare.py`（実行）
+  - `python3 tools/prepare.py status` / `python3 tools/prepare.py clean`
 - 設定ファイル: `prepare.json`
   - キー: `command`, `copy_only`, `modules`, `submodules`
   - 仕様と例: [PREPARE.md](./PREPARE.md)
@@ -57,10 +62,10 @@ MicroPython 用の開発ユーティリティ集です。モジュールのバ�
   - サブディレクトリを含む再帰コピーに対応
   - WebREPL は `.env`/環境変数で接続設定を読込
 - 主なコマンド:
-  - `python3 deploy.py --source mpy_xtensa`（自動検出）
-  - `python3 deploy.py --source mpy_xtensa --device /dev/ttyACM0`
-  - `python3 deploy.py --source mpy_xtensa --dry-run`
-  - `python3 deploy.py -w --source mpy_xtensa [--dry-run]`
+  - `python3 tools/deploy.py --source mpy_xtensa`（自動検出）
+  - `python3 tools/deploy.py --source mpy_xtensa --device /dev/ttyACM0`
+  - `python3 tools/deploy.py --source mpy_xtensa --dry-run`
+  - `python3 tools/deploy.py -w --source mpy_xtensa [--dry-run]`
 - 詳細: [DEPLOY.md](./DEPLOY.md)
 
 ### update_version.py（バージョン管理）
@@ -69,8 +74,8 @@ MicroPython 用の開発ユーティリティ集です。モジュールのバ�
   - `__version__ = "x.x.x"` と `__version__ = const("x.x.x")` に対応
   - `version.json` にのみ存在し `src/` に無いファイルは「欠落」としてレポート
 - 主なコマンド:
-  - `python3 update_version.py [--bump patch|minor|major]`
-  - `python3 update_version.py --src src --version-file src/version.json`
+  - `python3 tools/update_version.py [--bump patch|minor|major]`
+  - `python3 tools/update_version.py --src src --version-file src/version.json`
 - 詳細: [UPDATE_VERSION.md](./UPDATE_VERSION.md)
 
 ## リポジトリ構成（抜粋）
