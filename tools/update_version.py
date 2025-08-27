@@ -9,7 +9,7 @@ Usage:
     python3 update_version.py [--src src] [--version-file src/version.json] [--bump patch|minor|major]
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 import json
 import hashlib
